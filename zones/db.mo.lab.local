@@ -1,0 +1,15 @@
+$TTL 86400
+@   IN  SOA infra.mo.lab.local. admin.mo.lab.local. (
+            2024010101 3600 1800 604800 86400 )
+@       IN  NS   infra.mo.lab.local.
+infra         IN  A    172.25.25.254
+manager       IN  A    172.25.25.5
+lb-k8s        IN  A    172.25.25.10
+master1-k8s   IN  A    172.25.25.11
+master2-k8s   IN  A    172.25.25.12
+master3-k8s   IN  A    172.25.25.13
+worker1-k8s   IN  A    172.25.25.21
+worker2-k8s   IN  A    172.25.25.22
+worker3-k8s   IN  A    172.25.25.23
+dashboard-k8s IN  A    172.25.25.100
+

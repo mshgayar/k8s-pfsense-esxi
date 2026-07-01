@@ -1,0 +1,18 @@
+[masters]
+master1-k8s ansible_host=172.25.25.11
+master2-k8s ansible_host=172.25.25.12
+master3-k8s ansible_host=172.25.25.13
+
+[workers]
+worker1-k8s ansible_host=172.25.25.21 ansible_user=worker1-k8s
+worker2-k8s ansible_host=172.25.25.22 ansible_user=worker2-k8s
+worker3-k8s ansible_host=172.25.25.23 ansible_user=worker3-k8s
+
+[k8s:children]
+masters
+workers
+
+[k8s:vars]
+ansible_user=msalah
+ansible_become=yes
+ansible_become_method=sudo

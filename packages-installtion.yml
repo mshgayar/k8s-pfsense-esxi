@@ -1,0 +1,27 @@
+---
+- name: Prerequisites for Kubernetes Nodes
+  hosts: k8s
+  become: yes
+
+  tasks:
+
+    - name: Update and upgrade all packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+
+    - name: Install required packages
+      apt:
+        name:
+          - git
+          - net-tools
+          - curl
+          - wget
+          - vim
+          - htop
+          - bash-completion
+          - apt-transport-https
+          - ca-certificates
+          - gnupg2
+          - software-properties-common
+        state: present

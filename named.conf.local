@@ -1,0 +1,9 @@
+zone "mo.lab.local" {
+    type master;
+    file "/etc/named/zones/db.mo.lab.local"; # zone file path
+};
+
+zone "25.25.172.in-addr.arpa" {
+    type master;
+    file "/etc/named/zones/db.172.25.25.rev";  # 172.25.25.0/24 subnet
+};

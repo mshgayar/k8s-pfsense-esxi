@@ -1,0 +1,14 @@
+$TTL 86400
+@   IN  SOA infra.mo.lab.local. infra.mo.lab.local. (
+            2024010101 3600 1800 604800 86400 )
+@       IN  NS   infra.mo.lab.local.
+254     IN  PTR  infra.mo.lab.local.
+10      IN  PTR  lb-k8s.mo.lab.local.
+5       IN  PTR  manager.mo.lab.local.
+11      IN  PTR  master1-k8s.mo.lab.local.
+12      IN  PTR  master2-k8s.mo.lab.local.
+13      IN  PTR  master3-k8s.mo.lab.local.
+21      IN  PTR  worker1-k8s.mo.lab.local.
+22      IN  PTR  worker2-k8s.mo.lab.local.
+23      IN  PTR  worker3-k8s.mo.lab.local.
+100	IN  PTR  dashboard-k8s.mo.lab.local.
