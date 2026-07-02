@@ -500,13 +500,12 @@ ssh worker2-k8s@172.25.25.22 "echo 'worker2-k8s ALL=(ALL) NOPASSWD:ALL' | sudo t
 ssh worker3-k8s@172.25.25.23 "echo 'worker3-k8s ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/worker3-k8s"
 ```
 
-### 10.4 — Apply Ansible Inventory and Test
+### 10.4 — Test Ansible Connectivity
 
 ```bash
-mkdir -p /etc/ansible
-cp /root/ansible-k8s/hosts /etc/ansible/hosts
-
-ansible all -m ping
+# Run from the repo directory — no need to copy hosts to /etc/ansible
+cd /root/ansible-k8s
+ansible all -i hosts -m ping
 ```
 
 ---
@@ -517,7 +516,7 @@ A single combined playbook handles everything across all 6 nodes simultaneously.
 
 ```bash
 cd /root/ansible-k8s
-ansible-playbook prepare-k8s-nodes.yml
+ansible-playbook -i hosts prepare-k8s-nodes.yml
 ```
 
 | Task | Details |
@@ -842,7 +841,7 @@ Corelight natively supports Kafka output — configuring the sensor's Kafka expo
 
 | File | Destination | Host |
 |---|---|---|
-| `hosts` | `/etc/ansible/hosts` | manager |
+| `hosts` | `/root/ansible-k8s/hosts` | manager |
 | `named.conf` | `/etc/named.conf` | infra |
 | `named.conf.local` | `/etc/named/named.conf.local` | infra |
 | `zones/db.mo.lab.local` | `/etc/named/zones/` | infra |
