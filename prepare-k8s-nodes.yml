@@ -10,6 +10,22 @@
         update_cache: yes
         upgrade: dist
 
+    - name: Install base packages
+      apt:
+        name:
+          - git
+          - net-tools
+          - curl
+          - wget
+          - vim
+          - htop
+          - bash-completion
+          - apt-transport-https
+          - ca-certificates
+          - gnupg2
+          - software-properties-common
+        state: present
+
     - name: Disable swap
       command: swapoff -a
 
@@ -31,7 +47,6 @@
 
     - name: Modprobe br_netfilter
       command: modprobe br_netfilter
-        
 
     - name: Set sysctl parameters
       copy:
@@ -43,16 +58,6 @@
 
     - name: Apply sysctl
       command: sysctl --system
-
-    - name: Install required packages
-      apt:
-        name:
-          - curl
-          - gnupg2
-          - software-properties-common
-          - apt-transport-https
-          - ca-certificates
-        state: present
 
     - name: Add Docker GPG key
       shell: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmour -o /etc/apt/trusted.gpg.d/docker.gpg
