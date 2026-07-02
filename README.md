@@ -603,6 +603,57 @@ sudo kubeadm join 172.25.25.10:6443 --token <token> \
   --discovery-token-ca-cert-hash sha256:<hash>
 ```
 
+### After All Nodes Joined — Verify Cluster
+
+```bash
+kubectl get nodes
+```
+
+Expected output — all nodes NotReady (no CNI installed yet):
+
+```
+NAME                   STATUS     ROLES           AGE   VERSION
+master1.mo.lab.local   NotReady   control-plane   10m   v1.30.14
+master2.mo.lab.local   NotReady   control-plane   5m    v1.30.14
+master3.mo.lab.local   NotReady   control-plane   3m    v1.30.14
+worker1.mo.lab.local   NotReady   <none>          2m    v1.30.14
+worker2.mo.lab.local   NotReady   <none>          2m    v1.30.14
+worker3.mo.lab.local   NotReady   <none>          1m    v1.30.14
+```
+
+Check current namespaces:
+
+```bash
+kubectl get namespaces
+```
+
+```
+NAME              STATUS   AGE
+default           Active   10m
+kube-node-lease   Active   10m
+kube-public       Active   10m
+kube-system       Active   10m
+```
+
+Check pods — CoreDNS will be Pending until CNI is installed:
+
+```bash
+kubectl get pods -A
+```
+
+```
+NAMESPACE     NAME                                           READY   STATUS    RESTARTS   AGE
+kube-system   coredns-55cb58b774-cd988                      0/1     Pending   0          10m
+kube-system   coredns-55cb58b774-wpt8d                      0/1     Pending   0          10m
+kube-system   etcd-master1.mo.lab.local                     1/1     Running   0          10m
+kube-system   kube-apiserver-master1.mo.lab.local           1/1     Running   0          10m
+kube-system   kube-controller-manager-master1.mo.lab.local  1/1     Running   0          10m
+kube-system   kube-scheduler-master1.mo.lab.local           1/1     Running   0          10m
+kube-system   kube-proxy-xxxxx                              1/1     Running   0          10m
+```
+
+> CoreDNS stays Pending until a CNI plugin is installed. This is expected.
+
 ---
 
 ## 15. Install Calico CNI
@@ -614,6 +665,73 @@ kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/
 
 # Wait for all nodes to reach Ready status
 kubectl get nodes -w
+```
+
+### After Calico — Verify All Nodes Ready
+
+```bash
+kubectl get nodes
+```
+
+```
+NAME                   STATUS   ROLES           AGE   VERSION
+master1.mo.lab.local   Ready    control-plane   15m   v1.30.14
+master2.mo.lab.local   Ready    control-plane   10m   v1.30.14
+master3.mo.lab.local   Ready    control-plane   8m    v1.30.14
+worker1.mo.lab.local   Ready    <none>          6m    v1.30.14
+worker2.mo.lab.local   Ready    <none>          6m    v1.30.14
+worker3.mo.lab.local   Ready    <none>          5m    v1.30.14
+```
+
+Check all pods running — CoreDNS and Calico should now be Running:
+
+```bash
+kubectl get pods -A
+```
+
+```
+NAMESPACE     NAME                                           READY   STATUS    RESTARTS   AGE
+kube-system   calico-kube-controllers-6df7596dbd-fh8bc      1/1     Running   0          2m
+kube-system   calico-node-xxxxx                             1/1     Running   0          2m
+kube-system   calico-node-xxxxx                             1/1     Running   0          2m
+kube-system   calico-node-xxxxx                             1/1     Running   0          2m
+kube-system   calico-node-xxxxx                             1/1     Running   0          2m
+kube-system   calico-node-xxxxx                             1/1     Running   0          2m
+kube-system   calico-node-xxxxx                             1/1     Running   0          2m
+kube-system   coredns-55cb58b774-cd988                      1/1     Running   0          15m
+kube-system   coredns-55cb58b774-wpt8d                      1/1     Running   0          15m
+kube-system   etcd-master1.mo.lab.local                     1/1     Running   0          15m
+kube-system   etcd-master2.mo.lab.local                     1/1     Running   0          10m
+kube-system   etcd-master3.mo.lab.local                     1/1     Running   0          8m
+kube-system   kube-apiserver-master1.mo.lab.local           1/1     Running   0          15m
+kube-system   kube-apiserver-master2.mo.lab.local           1/1     Running   0          10m
+kube-system   kube-apiserver-master3.mo.lab.local           1/1     Running   0          8m
+kube-system   kube-controller-manager-master1.mo.lab.local  1/1     Running   0          15m
+kube-system   kube-controller-manager-master2.mo.lab.local  1/1     Running   0          10m
+kube-system   kube-controller-manager-master3.mo.lab.local  1/1     Running   0          8m
+kube-system   kube-proxy-xxxxx                              1/1     Running   0          15m
+kube-system   kube-proxy-xxxxx                              1/1     Running   0          10m
+kube-system   kube-proxy-xxxxx                              1/1     Running   0          8m
+kube-system   kube-proxy-xxxxx                              1/1     Running   0          6m
+kube-system   kube-proxy-xxxxx                              1/1     Running   0          6m
+kube-system   kube-proxy-xxxxx                              1/1     Running   0          5m
+kube-system   kube-scheduler-master1.mo.lab.local           1/1     Running   0          15m
+kube-system   kube-scheduler-master2.mo.lab.local           1/1     Running   0          10m
+kube-system   kube-scheduler-master3.mo.lab.local           1/1     Running   0          8m
+```
+
+Check namespaces — still only default system namespaces at this point:
+
+```bash
+kubectl get namespaces
+```
+
+```
+NAME              STATUS   AGE
+default           Active   15m
+kube-node-lease   Active   15m
+kube-public       Active   15m
+kube-system       Active   15m
 ```
 
 ---
@@ -639,6 +757,45 @@ kubectl apply -f /root/ansible-k8s/metallb-config.yaml
 # Verify
 kubectl get IPAddressPool -n metallb-system
 kubectl get L2Advertisement -n metallb-system
+```
+
+### After MetalLB — Verify Namespaces, Pods and Services
+
+```bash
+kubectl get namespaces
+```
+
+```
+NAME              STATUS   AGE
+default           Active   20m
+kube-node-lease   Active   20m
+kube-public       Active   20m
+kube-system       Active   20m
+metallb-system    Active   2m
+```
+
+```bash
+kubectl get pods -n metallb-system
+```
+
+```
+NAME                                  READY   STATUS    RESTARTS   AGE
+controller-86f5578878-mbfdw           1/1     Running   0          2m
+speaker-xxxxx                         1/1     Running   0          2m
+speaker-xxxxx                         1/1     Running   0          2m
+speaker-xxxxx                         1/1     Running   0          2m
+speaker-xxxxx                         1/1     Running   0          2m
+speaker-xxxxx                         1/1     Running   0          2m
+speaker-xxxxx                         1/1     Running   0          2m
+```
+
+```bash
+kubectl get svc -n metallb-system
+```
+
+```
+NAME                      TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
+metallb-webhook-service   ClusterIP   10.96.xxx.xxx   <none>        443/TCP   2m
 ```
 
 ---
@@ -675,6 +832,105 @@ kubectl -n kubernetes-dashboard create token admin-user
 ```
 
 Access at: **https://172.25.25.100**
+
+### After Dashboard — Verify Namespaces, Pods and Services
+
+```bash
+kubectl get namespaces
+```
+
+```
+NAME                   STATUS   AGE
+default                Active   30m
+kube-node-lease        Active   30m
+kube-public            Active   30m
+kube-system            Active   30m
+kubernetes-dashboard   Active   2m
+metallb-system         Active   12m
+```
+
+```bash
+kubectl get pods -n kubernetes-dashboard
+```
+
+```
+NAME                                        READY   STATUS    RESTARTS   AGE
+dashboard-metrics-scraper-795895d745-xxxxx  1/1     Running   0          2m
+kubernetes-dashboard-56cf4b97c5-xxxxx       1/1     Running   0          2m
+```
+
+```bash
+kubectl get svc -n kubernetes-dashboard
+```
+
+```
+NAME                        TYPE           CLUSTER-IP      EXTERNAL-IP     PORT(S)         AGE
+dashboard-metrics-scraper   ClusterIP      10.107.xx.xx    <none>          8000/TCP        2m
+kubernetes-dashboard        LoadBalancer   10.101.xx.xx    172.25.25.100   443:30119/TCP   2m
+```
+
+> MetalLB assigns `172.25.25.100` — the first IP in the pool. Dashboard is now accessible at **https://172.25.25.100**
+
+List all pods across all namespaces at this point:
+
+```bash
+kubectl get pods -A
+```
+
+```
+NAMESPACE              NAME                                           READY   STATUS    RESTARTS   AGE
+kube-system            calico-kube-controllers-6df7596dbd-xxxxx      1/1     Running   0          20m
+kube-system            calico-node-xxxxx                             1/1     Running   0          20m
+kube-system            calico-node-xxxxx                             1/1     Running   0          20m
+kube-system            calico-node-xxxxx                             1/1     Running   0          20m
+kube-system            calico-node-xxxxx                             1/1     Running   0          20m
+kube-system            calico-node-xxxxx                             1/1     Running   0          20m
+kube-system            calico-node-xxxxx                             1/1     Running   0          20m
+kube-system            coredns-55cb58b774-xxxxx                      1/1     Running   0          30m
+kube-system            coredns-55cb58b774-xxxxx                      1/1     Running   0          30m
+kube-system            etcd-master1.mo.lab.local                     1/1     Running   0          30m
+kube-system            etcd-master2.mo.lab.local                     1/1     Running   0          25m
+kube-system            etcd-master3.mo.lab.local                     1/1     Running   0          23m
+kube-system            kube-apiserver-master1.mo.lab.local           1/1     Running   0          30m
+kube-system            kube-apiserver-master2.mo.lab.local           1/1     Running   0          25m
+kube-system            kube-apiserver-master3.mo.lab.local           1/1     Running   0          23m
+kube-system            kube-controller-manager-master1.mo.lab.local  1/1     Running   0          30m
+kube-system            kube-controller-manager-master2.mo.lab.local  1/1     Running   0          25m
+kube-system            kube-controller-manager-master3.mo.lab.local  1/1     Running   0          23m
+kube-system            kube-proxy-xxxxx                              1/1     Running   0          30m
+kube-system            kube-proxy-xxxxx                              1/1     Running   0          25m
+kube-system            kube-proxy-xxxxx                              1/1     Running   0          23m
+kube-system            kube-proxy-xxxxx                              1/1     Running   0          20m
+kube-system            kube-proxy-xxxxx                              1/1     Running   0          20m
+kube-system            kube-proxy-xxxxx                              1/1     Running   0          19m
+kube-system            kube-scheduler-master1.mo.lab.local           1/1     Running   0          30m
+kube-system            kube-scheduler-master2.mo.lab.local           1/1     Running   0          25m
+kube-system            kube-scheduler-master3.mo.lab.local           1/1     Running   0          23m
+kubernetes-dashboard   dashboard-metrics-scraper-795895d745-xxxxx    1/1     Running   0          2m
+kubernetes-dashboard   kubernetes-dashboard-56cf4b97c5-xxxxx         1/1     Running   0          2m
+metallb-system         controller-86f5578878-xxxxx                   1/1     Running   0          12m
+metallb-system         speaker-xxxxx                                 1/1     Running   0          12m
+metallb-system         speaker-xxxxx                                 1/1     Running   0          12m
+metallb-system         speaker-xxxxx                                 1/1     Running   0          12m
+metallb-system         speaker-xxxxx                                 1/1     Running   0          12m
+metallb-system         speaker-xxxxx                                 1/1     Running   0          12m
+metallb-system         speaker-xxxxx                                 1/1     Running   0          12m
+```
+
+List all services across all namespaces:
+
+```bash
+kubectl get svc -A
+```
+
+```
+NAMESPACE              NAME                        TYPE           CLUSTER-IP      EXTERNAL-IP     PORT(S)         AGE
+default                kubernetes                  ClusterIP      10.96.0.1       <none>          443/TCP         30m
+kube-system            kube-dns                    ClusterIP      10.96.0.10      <none>          53/UDP,53/TCP   30m
+kubernetes-dashboard   dashboard-metrics-scraper   ClusterIP      10.107.xx.xx    <none>          8000/TCP        2m
+kubernetes-dashboard   kubernetes-dashboard        LoadBalancer   10.101.xx.xx    172.25.25.100   443:30119/TCP   2m
+metallb-system         metallb-webhook-service     ClusterIP      10.96.xx.xx     <none>          443/TCP         12m
+```
 
 ---
 
