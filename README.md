@@ -23,22 +23,24 @@
 8. [NFS Storage Server](#8-nfs-storage-server-infra--172252554)
 9. [HAProxy Load Balancer](#9-haproxy-load-balancer-lb-k8s--1722552510)
 10. [Manager VM — Ansible Setup](#10-manager-vm--ansible-setup-172252555)
-11. [Prepare All K8s Nodes via Ansible](#11-prepare-all-k8s-nodes-via-ansible)
-12. [Initialize Kubernetes Cluster](#12-initialize-kubernetes-cluster-master1)
-13. [Join Control Plane Nodes](#13-join-master2-and-master3)
-14. [Join Worker Nodes](#14-join-worker-nodes)
-15. [Install Calico CNI](#15-install-calico-cni)
-16. [Install MetalLB](#16-install-metallb)
-17. [Install Kubernetes Dashboard](#17-install-kubernetes-dashboard)
-18. [Install Metrics Server](#18-install-metrics-server)
-19. [Install NFS Dynamic Provisioner](#19-install-nfs-dynamic-provisioner)
-20. [Current Cluster Status](#20-current-cluster-status)
-21. [Next Steps — ELK & Kafka for Corelight](#21-next-steps--elk--kafka-for-corelight-sensor-logs)
-22. [Files in This Repo](#22-files-in-this-repo)
-23. [Access Endpoints](#23-access-endpoints)
-24. [Component Versions](#24-component-versions)
-25. [Troubleshooting](#25-troubleshooting)
-26. [Kubernetes Traffic Flow & Pod Scheduling](#26-kubernetes-traffic-flow--pod-scheduling)
+11. [Kubernetes Stack](#11-kubernetes-stack)
+   - [Cluster Components Diagram](#cluster-components-diagram)
+   - [Prepare All Nodes via Ansible](#prepare-all-nodes-via-ansible)
+   - [Initialize Cluster (master1)](#initialize-cluster-master1)
+   - [Join master2 and master3](#join-master2-and-master3)
+   - [Join Worker Nodes](#join-worker-nodes)
+   - [Install Calico CNI](#install-calico-cni)
+   - [Install MetalLB](#install-metallb)
+   - [Install Kubernetes Dashboard](#install-kubernetes-dashboard)
+   - [Install Metrics Server](#install-metrics-server)
+   - [Install NFS Dynamic Provisioner](#install-nfs-dynamic-provisioner)
+   - [Current Cluster Status](#current-cluster-status)
+   - [Traffic Flow & Pod Scheduling](#traffic-flow--pod-scheduling)
+12. [Next Steps — Kafka for Corelight](#12-next-steps--kafka-for-corelight)
+13. [Files in This Repo](#13-files-in-this-repo)
+14. [Access Endpoints](#14-access-endpoints)
+15. [Component Versions](#15-component-versions)
+16. [Troubleshooting](#16-troubleshooting)
 
 ---
 
@@ -99,8 +101,6 @@ Kubernetes API VIP:   https://172.25.25.10:6443  (via HAProxy)
 ---
 
 ## 3. Infrastructure Deep Dive
-
-![Kubernetes Cluster Components](diagram-k8s-components.png)
 
 ### VMware ESXi — The Hypervisor Foundation
 
@@ -511,9 +511,18 @@ cd /root/ansible-k8s
 ansible all -i hosts -m ping
 ```
 
+
 ---
 
-## 11. Prepare All K8s Nodes via Ansible
+## 11. Kubernetes Stack
+
+### Cluster Components Diagram
+
+![Kubernetes Cluster Components](diagram-k8s-components.png)
+
+---
+
+### Prepare All Nodes via Ansible
 
 A single combined playbook handles everything across all 6 nodes simultaneously.
 
@@ -536,7 +545,7 @@ ansible-playbook -i hosts prepare-k8s-nodes.yml
 
 ---
 
-## 12. Initialize Kubernetes Cluster (master1)
+### Initialize Cluster (master1)
 
 ```bash
 ssh msalah@172.25.25.11
@@ -561,7 +570,7 @@ scp msalah@172.25.25.11:/home/msalah/.kube/config ~/.kube/config
 
 ---
 
-## 13. Join master2 and master3
+### Join master2 and master3
 
 On **master1** — generate fresh credentials (certificate key valid 2 hours):
 
@@ -598,7 +607,7 @@ sudo kubeadm join 172.25.25.10:6443 --token <token> \
 
 ---
 
-## 14. Join Worker Nodes
+### Join Worker Nodes
 
 ```bash
 # On each worker node
@@ -606,7 +615,7 @@ sudo kubeadm join 172.25.25.10:6443 --token <token> \
   --discovery-token-ca-cert-hash sha256:<hash>
 ```
 
-### After All Nodes Joined — Verify Cluster
+#### After All Nodes Joined — Verify
 
 ```bash
 kubectl get nodes
@@ -624,8 +633,6 @@ worker2.mo.lab.local   NotReady   <none>          2m    v1.30.14
 worker3.mo.lab.local   NotReady   <none>          1m    v1.30.14
 ```
 
-Check current namespaces:
-
 ```bash
 kubectl get namespaces
 ```
@@ -637,8 +644,6 @@ kube-node-lease   Active   10m
 kube-public       Active   10m
 kube-system       Active   10m
 ```
-
-Check pods — CoreDNS will be Pending until CNI is installed:
 
 ```bash
 kubectl get pods -A
@@ -659,18 +664,17 @@ kube-system   kube-proxy-xxxxx                              1/1     Running   0 
 
 ---
 
-## 15. Install Calico CNI
+### Install Calico CNI
 
-> Flannel v0.28.5 was evaluated but rejected — it requires `/opt/bin` which does not exist on Ubuntu 22.04, causing CrashLoopBackOff on all nodes. Calico v3.27.0 was selected as the CNI.
+> Flannel v0.28.5 was evaluated but rejected — it requires `/opt/bin` which does not exist on Ubuntu 22.04, causing CrashLoopBackOff. Calico v3.27.0 was selected.
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico.yaml
 
-# Wait for all nodes to reach Ready status
 kubectl get nodes -w
 ```
 
-### After Calico — Verify All Nodes Ready
+#### After Calico — Verify All Nodes Ready
 
 ```bash
 kubectl get nodes
@@ -686,8 +690,6 @@ worker2.mo.lab.local   Ready    <none>          6m    v1.30.14
 worker3.mo.lab.local   Ready    <none>          5m    v1.30.14
 ```
 
-Check all pods running — CoreDNS and Calico should now be Running:
-
 ```bash
 kubectl get pods -A
 ```
@@ -695,11 +697,6 @@ kubectl get pods -A
 ```
 NAMESPACE     NAME                                           READY   STATUS    RESTARTS   AGE
 kube-system   calico-kube-controllers-6df7596dbd-fh8bc      1/1     Running   0          2m
-kube-system   calico-node-xxxxx                             1/1     Running   0          2m
-kube-system   calico-node-xxxxx                             1/1     Running   0          2m
-kube-system   calico-node-xxxxx                             1/1     Running   0          2m
-kube-system   calico-node-xxxxx                             1/1     Running   0          2m
-kube-system   calico-node-xxxxx                             1/1     Running   0          2m
 kube-system   calico-node-xxxxx                             1/1     Running   0          2m
 kube-system   coredns-55cb58b774-cd988                      1/1     Running   0          15m
 kube-system   coredns-55cb58b774-wpt8d                      1/1     Running   0          15m
@@ -713,35 +710,14 @@ kube-system   kube-controller-manager-master1.mo.lab.local  1/1     Running   0 
 kube-system   kube-controller-manager-master2.mo.lab.local  1/1     Running   0          10m
 kube-system   kube-controller-manager-master3.mo.lab.local  1/1     Running   0          8m
 kube-system   kube-proxy-xxxxx                              1/1     Running   0          15m
-kube-system   kube-proxy-xxxxx                              1/1     Running   0          10m
-kube-system   kube-proxy-xxxxx                              1/1     Running   0          8m
-kube-system   kube-proxy-xxxxx                              1/1     Running   0          6m
-kube-system   kube-proxy-xxxxx                              1/1     Running   0          6m
-kube-system   kube-proxy-xxxxx                              1/1     Running   0          5m
 kube-system   kube-scheduler-master1.mo.lab.local           1/1     Running   0          15m
 kube-system   kube-scheduler-master2.mo.lab.local           1/1     Running   0          10m
 kube-system   kube-scheduler-master3.mo.lab.local           1/1     Running   0          8m
 ```
 
-Check namespaces — still only default system namespaces at this point:
-
-```bash
-kubectl get namespaces
-```
-
-```
-NAME              STATUS   AGE
-default           Active   15m
-kube-node-lease   Active   15m
-kube-public       Active   15m
-kube-system       Active   15m
-```
-
 ---
 
-## 16. Install MetalLB
-
-### 16.1 — Install
+### Install MetalLB
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml
@@ -750,19 +726,14 @@ kubectl wait --namespace metallb-system \
   --for=condition=ready pod \
   --selector=app=metallb \
   --timeout=90s
-```
 
-### 16.2 — Apply IP Address Pool
-
-```bash
 kubectl apply -f /root/ansible-k8s/metallb-config.yaml
 
-# Verify
 kubectl get IPAddressPool -n metallb-system
 kubectl get L2Advertisement -n metallb-system
 ```
 
-### After MetalLB — Verify Namespaces, Pods and Services
+#### After MetalLB — Verify
 
 ```bash
 kubectl get namespaces
@@ -782,61 +753,35 @@ kubectl get pods -n metallb-system
 ```
 
 ```
-NAME                                  READY   STATUS    RESTARTS   AGE
-controller-86f5578878-mbfdw           1/1     Running   0          2m
-speaker-xxxxx                         1/1     Running   0          2m
-speaker-xxxxx                         1/1     Running   0          2m
-speaker-xxxxx                         1/1     Running   0          2m
-speaker-xxxxx                         1/1     Running   0          2m
-speaker-xxxxx                         1/1     Running   0          2m
-speaker-xxxxx                         1/1     Running   0          2m
-```
-
-```bash
-kubectl get svc -n metallb-system
-```
-
-```
-NAME                      TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
-metallb-webhook-service   ClusterIP   10.96.xxx.xxx   <none>        443/TCP   2m
+NAME                          READY   STATUS    RESTARTS   AGE
+controller-86f5578878-mbfdw   1/1     Running   0          2m
+speaker-xxxxx                 1/1     Running   0          2m
+speaker-xxxxx                 1/1     Running   0          2m
+speaker-xxxxx                 1/1     Running   0          2m
 ```
 
 ---
 
-## 17. Install Kubernetes Dashboard
-
-### 17.1 — Install
+### Install Kubernetes Dashboard
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
-```
 
-### 17.2 — Expose via MetalLB
-
-```bash
 # Change service type from ClusterIP to LoadBalancer
 kubectl edit svc kubernetes-dashboard -n kubernetes-dashboard
-# Change:  type: ClusterIP  →  type: LoadBalancer
 
-# Verify MetalLB assigned 172.25.25.100
-kubectl get svc -n kubernetes-dashboard
-```
-
-### 17.3 — Create Admin Account and Token
-
-```bash
+# Create admin account and token
 kubectl create serviceaccount admin-user -n kubernetes-dashboard
 kubectl create clusterrolebinding admin-user \
   --clusterrole=cluster-admin \
   --serviceaccount=kubernetes-dashboard:admin-user
 
-# Generate login token
 kubectl -n kubernetes-dashboard create token admin-user
 ```
 
 Access at: **https://172.25.25.100**
 
-### After Dashboard — Verify Namespaces, Pods and Services
+#### After Dashboard — Verify Namespaces, Pods and Services
 
 ```bash
 kubectl get namespaces
@@ -867,79 +812,27 @@ kubectl get svc -n kubernetes-dashboard
 ```
 
 ```
-NAME                        TYPE           CLUSTER-IP      EXTERNAL-IP     PORT(S)         AGE
-dashboard-metrics-scraper   ClusterIP      10.107.xx.xx    <none>          8000/TCP        2m
-kubernetes-dashboard        LoadBalancer   10.101.xx.xx    172.25.25.100   443:30119/TCP   2m
+NAME                        TYPE           CLUSTER-IP      EXTERNAL-IP     PORT(S)
+dashboard-metrics-scraper   ClusterIP      10.107.xx.xx    <none>          8000/TCP
+kubernetes-dashboard        LoadBalancer   10.101.xx.xx    172.25.25.100   443:30119/TCP
 ```
-
-> MetalLB assigns `172.25.25.100` — the first IP in the pool. Dashboard is now accessible at **https://172.25.25.100**
-
-List all pods across all namespaces at this point:
-
-```bash
-kubectl get pods -A
-```
-
-```
-NAMESPACE              NAME                                           READY   STATUS    RESTARTS   AGE
-kube-system            calico-kube-controllers-6df7596dbd-xxxxx      1/1     Running   0          20m
-kube-system            calico-node-xxxxx                             1/1     Running   0          20m
-kube-system            calico-node-xxxxx                             1/1     Running   0          20m
-kube-system            calico-node-xxxxx                             1/1     Running   0          20m
-kube-system            calico-node-xxxxx                             1/1     Running   0          20m
-kube-system            calico-node-xxxxx                             1/1     Running   0          20m
-kube-system            calico-node-xxxxx                             1/1     Running   0          20m
-kube-system            coredns-55cb58b774-xxxxx                      1/1     Running   0          30m
-kube-system            coredns-55cb58b774-xxxxx                      1/1     Running   0          30m
-kube-system            etcd-master1.mo.lab.local                     1/1     Running   0          30m
-kube-system            etcd-master2.mo.lab.local                     1/1     Running   0          25m
-kube-system            etcd-master3.mo.lab.local                     1/1     Running   0          23m
-kube-system            kube-apiserver-master1.mo.lab.local           1/1     Running   0          30m
-kube-system            kube-apiserver-master2.mo.lab.local           1/1     Running   0          25m
-kube-system            kube-apiserver-master3.mo.lab.local           1/1     Running   0          23m
-kube-system            kube-controller-manager-master1.mo.lab.local  1/1     Running   0          30m
-kube-system            kube-controller-manager-master2.mo.lab.local  1/1     Running   0          25m
-kube-system            kube-controller-manager-master3.mo.lab.local  1/1     Running   0          23m
-kube-system            kube-proxy-xxxxx                              1/1     Running   0          30m
-kube-system            kube-proxy-xxxxx                              1/1     Running   0          25m
-kube-system            kube-proxy-xxxxx                              1/1     Running   0          23m
-kube-system            kube-proxy-xxxxx                              1/1     Running   0          20m
-kube-system            kube-proxy-xxxxx                              1/1     Running   0          20m
-kube-system            kube-proxy-xxxxx                              1/1     Running   0          19m
-kube-system            kube-scheduler-master1.mo.lab.local           1/1     Running   0          30m
-kube-system            kube-scheduler-master2.mo.lab.local           1/1     Running   0          25m
-kube-system            kube-scheduler-master3.mo.lab.local           1/1     Running   0          23m
-kubernetes-dashboard   dashboard-metrics-scraper-795895d745-xxxxx    1/1     Running   0          2m
-kubernetes-dashboard   kubernetes-dashboard-56cf4b97c5-xxxxx         1/1     Running   0          2m
-metallb-system         controller-86f5578878-xxxxx                   1/1     Running   0          12m
-metallb-system         speaker-xxxxx                                 1/1     Running   0          12m
-metallb-system         speaker-xxxxx                                 1/1     Running   0          12m
-metallb-system         speaker-xxxxx                                 1/1     Running   0          12m
-metallb-system         speaker-xxxxx                                 1/1     Running   0          12m
-metallb-system         speaker-xxxxx                                 1/1     Running   0          12m
-metallb-system         speaker-xxxxx                                 1/1     Running   0          12m
-```
-
-List all services across all namespaces:
 
 ```bash
 kubectl get svc -A
 ```
 
 ```
-NAMESPACE              NAME                        TYPE           CLUSTER-IP      EXTERNAL-IP     PORT(S)         AGE
-default                kubernetes                  ClusterIP      10.96.0.1       <none>          443/TCP         30m
-kube-system            kube-dns                    ClusterIP      10.96.0.10      <none>          53/UDP,53/TCP   30m
-kubernetes-dashboard   dashboard-metrics-scraper   ClusterIP      10.107.xx.xx    <none>          8000/TCP        2m
-kubernetes-dashboard   kubernetes-dashboard        LoadBalancer   10.101.xx.xx    172.25.25.100   443:30119/TCP   2m
-metallb-system         metallb-webhook-service     ClusterIP      10.96.xx.xx     <none>          443/TCP         12m
+NAMESPACE              NAME                        TYPE           CLUSTER-IP    EXTERNAL-IP     PORT(S)
+default                kubernetes                  ClusterIP      10.96.0.1     <none>          443/TCP
+kube-system            kube-dns                    ClusterIP      10.96.0.10    <none>          53/UDP,53/TCP
+kubernetes-dashboard   dashboard-metrics-scraper   ClusterIP      10.107.xx.xx  <none>          8000/TCP
+kubernetes-dashboard   kubernetes-dashboard        LoadBalancer   10.101.xx.xx  172.25.25.100   443:30119/TCP
+metallb-system         metallb-webhook-service     ClusterIP      10.96.xx.xx   <none>          443/TCP
 ```
 
 ---
 
-## 18. Install Metrics Server
-
-Required for CPU and memory graphs in the Kubernetes Dashboard and for `kubectl top` commands.
+### Install Metrics Server
 
 ```bash
 kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
@@ -949,16 +842,13 @@ kubectl patch deployment metrics-server -n kube-system \
   --type='json' \
   -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
 
-# Verify
 kubectl top nodes
 kubectl top pods -A
 ```
 
 ---
 
-## 19. Install NFS Dynamic Provisioner
-
-### 19.1 — Install Helm and Provisioner
+### Install NFS Dynamic Provisioner
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
@@ -973,30 +863,22 @@ helm install nfs-provisioner nfs-subdir-external-provisioner/nfs-subdir-external
   --set nfs.path=/home/nfs/k8s \
   --set storageClass.name=nfs-storage \
   --set storageClass.defaultClass=true
-```
 
-### 19.2 — Fix nfs-common on Worker Nodes
-
-```bash
+# Fix nfs-common on worker nodes
 ansible workers -m apt -a "name=nfs-common state=present update_cache=yes" --become
-
 kubectl rollout restart deployment -n nfs-provisioner \
   nfs-provisioner-nfs-subdir-external-provisioner
-```
 
-### 19.3 — Test Dynamic Provisioning
-
-```bash
+# Test dynamic provisioning
 kubectl apply -f /root/ansible-k8s/test-pvc.yaml
 kubectl apply -f /root/ansible-k8s/test-pod-dynamic-storage.yaml
-
 kubectl get pvc
 # Expected: STATUS = Bound
 ```
 
 ---
 
-## 20. Current Cluster Status
+### Current Cluster Status
 
 All 6 nodes are Ready and all cluster components are operational.
 
@@ -1024,7 +906,140 @@ worker3.mo.lab.local   Ready    <none>          v1.30.14
 
 ---
 
-## 21. Next Steps — Kafka Cluster for Corelight / Zeek Sensor Logs
+### Traffic Flow & Pod Scheduling
+
+![Kubernetes Traffic Flow & Pod Scheduling](diagram-traffic-scheduling.png)
+
+#### How External Traffic Reaches a Pod
+
+When a client on the home LAN (192.168.1.0/24) or the Kubernetes subnet accesses a service exposed via MetalLB:
+
+```
+Client / Browser
+      │
+      ▼
+MetalLB Speaker (DaemonSet on every worker node)
+  └─ Responds to ARP request for the MetalLB VIP (e.g. 172.25.25.100)
+  └─ Announces the VIP belongs to a specific worker node (L2 mode)
+      │
+      ▼
+kube-proxy (iptables rules on the receiving node)
+  └─ Rewrites destination IP from Service ClusterIP → Pod IP (10.244.x.x)
+  └─ If pod is on a different node, traffic is forwarded via the node network
+      │
+      ▼
+calico-node (CNI — overlay routing across nodes)
+  └─ Routes the packet to the correct node where the pod actually lives
+  └─ Encapsulates cross-node traffic (VXLAN/IP-IP overlay)
+      │
+      ▼
+Pod (10.244.x.x)
+  └─ Receives the request on its container port
+```
+
+**Concrete example — Kubernetes Dashboard:**
+1. Browser navigates to `https://172.25.25.100`
+2. ARP broadcast on 172.25.25.0/24 — MetalLB speaker on worker1 responds
+3. kube-proxy maps 172.25.25.100:443 → 10.244.x.x:8443 (dashboard pod IP)
+4. If pod is on a different worker, Calico tunnels the packet there
+5. Dashboard pod responds; return path follows the same routing in reverse
+
+---
+
+#### How kubectl apply Works — End to End
+
+```
+kubectl apply -f deployment.yaml        (from Manager VM 172.25.25.5)
+      │
+      ▼
+HAProxy (172.25.25.10:6443)
+  └─ Picks a healthy master (master1, master2, or master3)
+      │
+      ▼
+kube-apiserver
+  └─ Authenticates request, validates manifest, writes desired state to etcd
+      │
+      ▼
+etcd (Raft — 3 masters, quorum = 2/3)
+  └─ Stores pod spec, deployment, replica count
+      │
+      ▼
+kube-controller-manager (leader-elected)
+  └─ ReplicaSet controller: desired=3, actual=0 → creates 3 Pending pods
+      │
+      ▼
+kube-scheduler (leader-elected)
+  └─ Filters nodes → scores nodes → assigns each pod to best-fit worker
+      │
+      ▼
+kubelet (on assigned worker)
+  └─ Pulls image via containerd → starts container → reports Running
+```
+
+---
+
+#### How kube-scheduler Chooses a Worker Node
+
+**Phase 1 — Filtering (eliminate ineligible nodes):**
+
+| Filter | What It Checks |
+|---|---|
+| Resource fit | Node has enough free CPU and RAM for pod's requests |
+| Taints & Tolerations | Masters tainted `node-role.kubernetes.io/control-plane:NoSchedule` — app pods stay on workers |
+| Node Selector | Pod's `nodeSelector` labels must match node labels |
+| Pod Affinity / Anti-Affinity | Required affinity rules must be satisfied |
+| Volume availability | Node must be able to mount the required PVC |
+| Port conflicts | hostPort must not already be in use on that node |
+
+**Phase 2 — Scoring (rank remaining nodes, highest wins):**
+
+| Score Factor | Preference |
+|---|---|
+| Least allocated | Node with most available CPU/RAM wins |
+| Spread | Balance pods evenly — avoid stacking replicas on one node |
+| Image locality | Node that already has the container image cached scores higher |
+| Pod anti-affinity weight | Soft anti-affinity reduces score when similar pods already exist on a node |
+
+---
+
+#### Pod Scheduling Example — Kafka Cluster Across 3 Workers
+
+When deploying Kafka via Strimzi, the scheduler distributes brokers one per worker using pod anti-affinity. Each broker gets a dedicated NFS PVC for its topic data.
+
+```
+worker1 (172.25.25.21)      worker2 (172.25.25.22)      worker3 (172.25.25.23)
+┌─────────────────────┐     ┌─────────────────────┐     ┌─────────────────────┐
+│ kafka-0             │     │ kafka-1             │     │ kafka-2             │
+│  KRaft Controller   │     │  KRaft Voter        │     │  KRaft Voter        │
+│  conn Leader P0     │     │  dns Leader P0      │     │  http Leader P0     │
+│  PVC → NFS 20Gi     │     │  PVC → NFS 20Gi     │     │  PVC → NFS 20Gi     │
+│                     │     │                     │     │                     │
+│ calico-node         │     │ calico-node         │     │ calico-node         │
+│ kube-proxy          │     │ kube-proxy          │     │ kube-proxy          │
+│ metallb-speaker     │     │ metallb-speaker     │     │ metallb-speaker     │
+└─────────────────────┘     └─────────────────────┘     └─────────────────────┘
+```
+
+**Failure tolerance:** If worker2 goes down — kafka-1 is rescheduled on a remaining worker. Topics with RF=2 still have one surviving replica on worker1 or worker3. Kafka stays operational.
+
+---
+
+#### Component Reference
+
+| Component | Runs On | Role |
+|---|---|---|
+| **kube-apiserver** | All 3 masters | REST API gateway — all operations pass through here |
+| **etcd** | All 3 masters | Cluster state store — Raft consensus, tolerates 1 failure |
+| **kube-controller-manager** | All 3 masters (1 active) | Reconciliation loops — keeps replica count, detects node failures |
+| **kube-scheduler** | All 3 masters (1 active) | Pod placement — filter + score → assigns pod to best worker |
+| **kubelet** | All 6 nodes | Node agent — starts containers, reports health to API server |
+| **kube-proxy** | All 6 nodes (DaemonSet) | iptables rules — implements Service ClusterIP load balancing |
+| **calico-node** | All 6 nodes (DaemonSet) | CNI — assigns pod IPs, cross-node routing, NetworkPolicy |
+| **containerd** | All 6 nodes | Container runtime — pulls images, runs containers (CRI) |
+| **MetalLB Speaker** | All 3 workers (DaemonSet) | L2 ARP announcer — assigns external IPs from 172.25.25.100–150 |
+
+
+## 12. Next Steps — Kafka Cluster for Corelight / Zeek Sensor Logs
 
 ![Kafka Cluster Architecture](diagram-kafka-cluster.png)
 
@@ -1148,7 +1163,9 @@ Apache Kafka is a distributed event streaming platform designed for high-through
 
 ---
 
-## 22. Files in This Repo
+
+
+## 13. Files in This Repo
 
 | File | Destination | Host |
 |---|---|---|
@@ -1167,7 +1184,7 @@ Apache Kafka is a distributed event streaming platform designed for high-through
 
 ---
 
-## 23. Access Endpoints
+## 14. Access Endpoints
 
 | Service | URL | Notes |
 |---|---|---|
@@ -1180,7 +1197,7 @@ Apache Kafka is a distributed event streaming platform designed for high-through
 
 ---
 
-## 24. Component Versions
+## 15. Component Versions
 
 | Component | Version |
 |---|---|
@@ -1200,7 +1217,7 @@ Apache Kafka is a distributed event streaming platform designed for high-through
 
 ---
 
-## 25. Troubleshooting
+## 16. Troubleshooting
 
 | Issue | Root Cause | Fix |
 |---|---|---|
@@ -1217,178 +1234,4 @@ Apache Kafka is a distributed event streaming platform designed for high-through
 | NFS provisioner CrashLoopBackOff | nfs-common missing on workers | Install nfs-common via Ansible then rollout restart provisioner |
 
 ---
-
-## 26. Kubernetes Traffic Flow & Pod Scheduling
-
-![Kubernetes Traffic Flow & Pod Scheduling](diagram-traffic-scheduling.png)
-
-### How External Traffic Reaches a Pod
-
-When a client on the home LAN (192.168.1.0/24) or the Kubernetes subnet accesses a service exposed via MetalLB:
-
-```
-Client / Browser
-      │
-      ▼
-MetalLB Speaker (DaemonSet on every worker node)
-  └─ Responds to ARP request for the MetalLB VIP (e.g. 172.25.25.100)
-  └─ Announces the VIP belongs to a specific worker node (L2 mode)
-      │
-      ▼
-kube-proxy (iptables rules on the receiving node)
-  └─ Rewrites destination IP from Service ClusterIP → Pod IP (10.244.x.x)
-  └─ If pod is on a different node, traffic is forwarded via the node network
-      │
-      ▼
-calico-node (CNI — overlay routing across nodes)
-  └─ Routes the packet to the correct node where the pod actually lives
-  └─ Encapsulates cross-node traffic (VXLAN/IP-IP overlay)
-      │
-      ▼
-Pod (10.244.x.x)
-  └─ Receives the request on its container port
-```
-
-**Concrete example — Kubernetes Dashboard:**
-1. Browser navigates to `https://172.25.25.100`
-2. ARP broadcast on 172.25.25.0/24 — MetalLB speaker on worker1 responds
-3. Packet arrives at worker1; kube-proxy iptables rule maps 172.25.25.100:443 → 10.244.155.132:8443 (dashboard pod)
-4. If dashboard pod is on worker3, Calico tunnels the packet from worker1 to worker3
-5. Dashboard pod sends response; reverse path follows same routing
-
----
-
-### How kubectl apply Works — End to End
-
-```
-kubectl apply -f deployment.yaml        (from Manager VM 172.25.25.5)
-      │
-      ▼
-HAProxy (172.25.25.10:6443)
-  └─ Picks a healthy master (master1, master2, or master3)
-  └─ Health check: TCP connect to port 6443 every 5 seconds
-      │
-      ▼
-kube-apiserver (on selected master)
-  └─ Authenticates request (client certificate or Bearer token)
-  └─ Validates the manifest against Kubernetes schema
-  └─ Writes the desired state to etcd
-      │
-      ▼
-etcd (replicated across 3 masters — Raft consensus)
-  └─ 3-member cluster — at least 2 must agree (quorum = 2/3)
-  └─ Stores the pod spec, deployment spec, replica count
-      │
-      ▼
-kube-controller-manager (leader-elected — 1 active of 3)
-  └─ ReplicaSet controller detects: desired=3 pods, actual=0 pods
-  └─ Creates 3 Pod objects with status: Pending (no node assigned yet)
-      │
-      ▼
-kube-scheduler (leader-elected — 1 active of 3)
-  └─ Watches for Pending pods
-  └─ For each pod: filter nodes → score nodes → assign best node
-  └─ Writes nodeName to pod spec in etcd
-      │
-      ▼
-kubelet (on the assigned worker node)
-  └─ Polls API server — sees a pod assigned to its node
-  └─ Tells containerd to pull the container image
-  └─ Creates the pod sandbox (network namespace, cgroups)
-  └─ Starts the container
-  └─ Reports status back: Running, IP assigned
-      │
-      ▼
-Pod is Running on the worker node
-kube-proxy updates iptables rules to include the new pod endpoint
-calico-node assigns a pod IP and programs routes across all nodes
-```
-
----
-
-### How kube-scheduler Chooses a Worker Node
-
-The scheduler uses a two-phase process for every unscheduled pod:
-
-**Phase 1 — Filtering (eliminate ineligible nodes):**
-
-| Filter | What It Checks |
-|---|---|
-| Resource fit | Node has enough free CPU and RAM to satisfy pod's `requests` |
-| Taints & Tolerations | Masters are tainted `node-role.kubernetes.io/control-plane:NoSchedule` — app pods not scheduled there unless they add a matching toleration |
-| Node Selector | Pod's `nodeSelector` labels must match node labels |
-| Pod Affinity / Anti-Affinity | Required affinity rules must be satisfied |
-| Volume availability | If pod requires a specific PVC, node must be able to mount it |
-| Port conflicts | hostPort must not already be in use on that node |
-
-**Phase 2 — Scoring (rank remaining nodes, highest wins):**
-
-| Score Factor | Preference |
-|---|---|
-| Least allocated | Node with most available CPU/RAM wins |
-| Spread | Balance pods evenly — avoid stacking replicas on one node |
-| Image locality | Node that already has the container image cached scores higher |
-| Pod anti-affinity weight | Soft anti-affinity rules reduce score when similar pods already exist on a node |
-
-**In our lab:** Masters are always filtered out for app pods (tainted). The 3 workers compete on resource availability and spread.
-
----
-
-### ELK Stack — Pod Scheduling Across Our 3 Workers
-
-When you deploy the full ELK + Kafka pipeline with `helm install`, the scheduler distributes pods to ensure HA — no two replicas of the same component land on the same node. The Elasticsearch StatefulSet uses `podAntiAffinity` with `topologyKey: kubernetes.io/hostname` to enforce this:
-
-```
-worker1 (172.25.25.21)          worker2 (172.25.25.22)          worker3 (172.25.25.23)
-┌───────────────────────┐       ┌───────────────────────┐       ┌───────────────────────┐
-│ elasticsearch-0       │       │ elasticsearch-1       │       │ elasticsearch-2       │
-│  Primary shards       │       │  Replica shards       │       │  Replica shards       │
-│  PVC → NFS storage    │       │  PVC → NFS storage    │       │  PVC → NFS storage    │
-│                       │       │                       │       │                       │
-│ kibana-xxx            │       │ logstash-xxx          │       │ kafka-0               │
-│  Web UI :5601         │       │  Parse & enrich logs  │       │  Message broker :9092 │
-│  MetalLB VIP          │       │  Kafka → Elasticsearch│       │  Corelight sends here │
-│                       │       │                       │       │                       │
-│ metricbeat-xxx        │       │ metricbeat-xxx        │       │ metricbeat-xxx        │
-│  DaemonSet            │       │  DaemonSet            │       │  DaemonSet            │
-└───────────────────────┘       └───────────────────────┘       └───────────────────────┘
-```
-
-**Why this distribution:**
-- `elasticsearch-0/1/2` each have anti-affinity rules — scheduler guarantees one per node
-- `kibana` follows node affinity (or resource availability) — lands on whichest worker has headroom
-- `logstash` is a Deployment (single replica) — lands on any available worker
-- `kafka-0` is a StatefulSet with PVC — pinned to one worker, data survives pod restarts via NFS
-- `metricbeat` is a DaemonSet — exactly one pod per node (all 3 workers + optionally masters)
-
-**Failure tolerance:** If worker2 goes down, Kubernetes detects node failure (kubelet heartbeat stops). The controller-manager reschedules `elasticsearch-1` and `logstash` to remaining workers. Elasticsearch still has quorum (2 of 3 data nodes) and continues serving data with degraded capacity. Kafka also tolerates broker loss if replication factor > 1.
-
----
-
-### Component Reference — What Runs Where and Why
-
-#### Control Plane Components (Masters Only)
-
-| Component | What It Does | Why 3 Masters |
-|---|---|---|
-| **kube-apiserver** | Single entry point for all cluster operations. Every kubectl command, controller action, and kubelet heartbeat passes through here. Validates auth (RBAC), persists state to etcd. In our lab HAProxy load balances all 3 on port 6443. | Active on all 3 masters simultaneously. HAProxy distributes load across them. If 1 master fails, traffic shifts to remaining 2. |
-| **etcd** | Distributed key-value store holding the complete cluster state — every pod spec, service, configmap, secret, node status, replica count. Uses Raft consensus to replicate writes across all 3 members. | Raft requires majority quorum: 3 members can tolerate loss of 1. With only 2 members, losing 1 makes the cluster read-only. **This is why 3 masters is the minimum for HA.** |
-| **kube-controller-manager** | Runs control loops that continuously compare desired state (in etcd) vs actual state, and acts to reconcile them. Includes: ReplicaSet controller (maintains pod count), Node controller (detects failures), Endpoint controller (maps services to pods). | Leader election — only 1 of 3 instances is active at any time. The other 2 standby and take over immediately if the leader fails. |
-| **kube-scheduler** | Watches for newly created pods with no node assigned. Runs filter + score cycle for each pod, assigns it to the best-fit node by writing `nodeName` into the pod spec. | Leader election — only 1 of 3 active. Standby instances take over in seconds. No scheduling disruption even during master failure. |
-
-#### Node-Level Components (All Nodes — Masters + Workers)
-
-| Component | What It Does | Notes |
-|---|---|---|
-| **kubelet** | Primary agent on every node. Registers node with API server. Watches for pods assigned to its node. Instructs containerd to pull images and start containers. Monitors health via liveness/readiness probes. Reports pod and node status every few seconds. | Runs on all 6 nodes. If kubelet dies, the node appears NotReady and pods are rescheduled elsewhere. |
-| **kube-proxy** | Maintains iptables/ipvs rules implementing Kubernetes Services. When a pod accesses a ClusterIP, kube-proxy rules transparently redirect traffic to a healthy pod endpoint. Enables service discovery and load balancing across pod replicas. | DaemonSet — one per node. Configures iptables without being in the data path itself. |
-| **calico-node (CNI)** | Assigns IP addresses from pod CIDR (10.244.x.x) to each pod. Programs routes so pods on different nodes can communicate directly. Enforces NetworkPolicy rules to control which pods can talk to which. In our lab Calico replaced Flannel (Flannel v0.28.5 requires `/opt/bin` which Ubuntu 22.04 does not provide). | DaemonSet — one per node. v3.27.0. Without CNI, pods cannot communicate at all — CoreDNS would stay Pending. |
-| **containerd** | Container runtime that actually runs containers. kubelet communicates with containerd via the CRI (Container Runtime Interface). containerd pulls images, unpacks them, creates container namespaces, manages container lifecycle, reports status to kubelet. `SystemdCgroup = true` is required so cgroup management works correctly with systemd. | Runs on all 6 nodes. v2.2.5. |
-
-#### Worker-Only Components
-
-| Component | What It Does |
-|---|---|
-| **MetalLB Speaker** | DaemonSet running on every worker. Responds to ARP requests for LoadBalancer VIPs (172.25.25.100–150). Announces which node owns which VIP. Only workers participate — masters are excluded via node selector. |
-| **Application Pods** | Workload pods (Dashboard, ELK, Kafka, NFS provisioner) are scheduled exclusively on workers due to the `node-role.kubernetes.io/control-plane:NoSchedule` taint on masters. |
 
