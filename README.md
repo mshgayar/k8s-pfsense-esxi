@@ -1024,6 +1024,8 @@ worker3.mo.lab.local   Ready    <none>          v1.30.14
 
 ## 21. Next Steps — Kafka Cluster for Corelight / Zeek Sensor Logs
 
+![Kafka Cluster Architecture](diagram-kafka-cluster.png)
+
 ### Overview
 
 The next phase after the Kubernetes cluster is deploying a **Kafka cluster** inside Kubernetes to receive real-time network security logs from Corelight sensors running Zeek. Corelight natively supports Kafka output — once the cluster is running, the sensor is pointed at the MetalLB IP on port 9092 and begins streaming all Zeek log types as JSON messages into Kafka topics. Any downstream consumer (SIEM, custom scripts, ELK, Splunk) can then read from those topics independently.
@@ -1215,6 +1217,8 @@ Apache Kafka is a distributed event streaming platform designed for high-through
 ---
 
 ## 26. Kubernetes Traffic Flow & Pod Scheduling
+
+![Kubernetes Traffic Flow & Pod Scheduling](diagram-traffic-scheduling.png)
 
 ### How External Traffic Reaches a Pod
 
