@@ -100,6 +100,8 @@ Kubernetes API VIP:   https://172.25.25.10:6443  (via HAProxy)
 
 ## 3. Infrastructure Deep Dive
 
+![Kubernetes Cluster Components](diagram-k8s-components.png)
+
 ### VMware ESXi — The Hypervisor Foundation
 
 ESXi is a Type-1 bare metal hypervisor that runs directly on the physical server hardware with no host operating system underneath it. All resources — CPU, RAM, storage, and network — are dedicated to the hypervisor and allocated to virtual machines with minimal overhead.
