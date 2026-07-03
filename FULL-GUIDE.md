@@ -1,4 +1,4 @@
-# Kubernetes HA Home Lab — Full Technical Runbook
+# Kubernetes HA Cluster on VMware ESXi & pfSense — Full Build Guide
 
 ![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.30.14-326CE5?logo=kubernetes&logoColor=white)
 ![Calico](https://img.shields.io/badge/Calico-v3.27.0-FB8C00?logo=linux&logoColor=white)

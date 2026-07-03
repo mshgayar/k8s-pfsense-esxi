@@ -1,4 +1,4 @@
-# Kubernetes HA Lab Cluster on VMware ESXi
+# Kubernetes HA Cluster on VMware ESXi & pfSense — Full Build Guide
 
 > **Environment:** Home Lab — VMware ESXi | **Domain:** mo.lab.local | **K8s Version:** v1.30.14 | **Status:** Fully Operational
 
