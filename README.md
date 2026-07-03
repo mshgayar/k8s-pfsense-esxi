@@ -38,6 +38,7 @@
 23. [Access Endpoints](#23-access-endpoints)
 24. [Component Versions](#24-component-versions)
 25. [Troubleshooting](#25-troubleshooting)
+26. [Kubernetes Traffic Flow & Pod Scheduling](#26-kubernetes-traffic-flow--pod-scheduling)
 
 ---
 
@@ -1021,75 +1022,125 @@ worker3.mo.lab.local   Ready    <none>          v1.30.14
 
 ---
 
-## 21. Next Steps — ELK & Kafka for Corelight Sensor Logs
+## 21. Next Steps — Kafka Cluster for Corelight / Zeek Sensor Logs
 
 ### Overview
 
-Corelight sensors generate rich network security logs in Zeek format — connection records, DNS queries, HTTP transactions, TLS certificates, file transfers, and more. The next phase deploys a complete log ingestion and analysis pipeline inside the Kubernetes cluster to collect, process, store, and visualize these logs in real time.
+The next phase after the Kubernetes cluster is deploying a **Kafka cluster** inside Kubernetes to receive real-time network security logs from Corelight sensors running Zeek. Corelight natively supports Kafka output — once the cluster is running, the sensor is pointed at the MetalLB IP on port 9092 and begins streaming all Zeek log types as JSON messages into Kafka topics. Any downstream consumer (SIEM, custom scripts, ELK, Splunk) can then read from those topics independently.
 
 ### Pipeline Architecture
 
 ```
-Corelight Sensors (Network Taps)
+Corelight Sensor (Network Tap — Zeek engine)
           │
-          │  Zeek logs — JSON over Kafka protocol
+          │  Zeek logs as JSON — Kafka producer protocol
+          │  Connects to MetalLB VIP:9092 from outside the cluster
           ▼
-┌─────────────────────┐
-│        Kafka        │  Message broker — buffers and distributes
-│    (3 brokers)      │  log streams at high volume
-│  one per worker     │  MetalLB IP assigned for external access
-└─────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│                  Kafka Cluster (on K8s)              │
+│                                                      │
+│  broker-0 (worker1)  broker-1 (worker2)  broker-2 (worker3)
+│       │                    │                   │     │
+│       └────────────────────┴───────────────────┘     │
+│                    Replication Factor = 2             │
+│                                                      │
+│  Topics:                                             │
+│    corelight.conn    corelight.dns    corelight.http │
+│    corelight.ssl     corelight.files  corelight.weird│
+│                                                      │
+│  PVC per broker → NFS StorageClass (persistent data) │
+└──────────────────────────────────────────────────────┘
           │
-          │  Consumers pull from Kafka topics
+          │  Any consumer reads from topics independently
           ▼
-┌─────────────────────┐
-│      Logstash       │  Parses, enriches, and normalizes
-│                     │  Zeek log fields before indexing
-└─────────────────────┘
-          │
-          ▼
-┌─────────────────────┐
-│   Elasticsearch     │  Indexes and stores all logs
-│    (3 data nodes)   │  Persistent storage via NFS PVCs
-│  one per worker     │  Distributed for HA and performance
-└─────────────────────┘
-          │
-          ▼
-┌─────────────────────┐
-│       Kibana        │  Visualization and analysis
-│                     │  Dashboards for network traffic,
-│                     │  DNS, TLS, file transfers, threats
-└─────────────────────┘
+     Future consumers (SIEM / analytics / alerting)
 ```
 
-### Why Kafka Between Corelight and Elasticsearch
+### Kafka Architecture & Components
 
-Corelight sensors can generate very high volumes of logs during traffic spikes. Without Kafka, if Elasticsearch is temporarily slow or unavailable, logs are dropped and permanently lost. Kafka acts as a durable buffer — it stores all messages on disk in replicated topics and replays them if a consumer falls behind or restarts. This completely decouples the sensors (producers) from Elasticsearch (consumers) so neither side blocks the other.
+Apache Kafka is a distributed event streaming platform designed for high-throughput, fault-tolerant log pipelines. It decouples producers (Corelight sensors) from consumers so neither side can block or overwhelm the other.
 
-Corelight natively supports Kafka output — configuring the sensor's Kafka exporter to point at the MetalLB IP assigned to the Kafka service is all that is required to start streaming logs into the cluster.
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Kafka Cluster                            │
+│                                                                 │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐         │
+│  │  Broker 0    │  │  Broker 1    │  │  Broker 2    │         │
+│  │  worker1     │  │  worker2     │  │  worker3     │         │
+│  │              │  │              │  │              │         │
+│  │ ┌──────────┐ │  │ ┌──────────┐ │  │ ┌──────────┐ │         │
+│  │ │ Topic    │ │  │ │ Topic    │ │  │ │ Topic    │ │         │
+│  │ │Partition │ │  │ │Partition │ │  │ │Partition │ │         │
+│  │ │(Leader)  │ │  │ │(Replica) │ │  │ │(Replica) │ │         │
+│  │ └──────────┘ │  │ └──────────┘ │  │ └──────────┘ │         │
+│  │              │  │              │  │              │         │
+│  │ NFS PVC      │  │ NFS PVC      │  │ NFS PVC      │         │
+│  └──────────────┘  └──────────────┘  └──────────────┘         │
+│                                                                 │
+│  Controller (KRaft mode — no Zookeeper needed in Kafka 3.x)    │
+│  One broker is elected Controller — manages partition leaders   │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-### What the Current Cluster Provides for This Pipeline
+**Kafka Component Reference:**
 
-| Cluster Capability | How It Supports ELK + Kafka |
+| Component | What It Does |
 |---|---|
-| NFS persistent storage | Elasticsearch indices and Kafka topic data survive pod restarts and node reboots |
-| MetalLB LoadBalancer IPs | Kafka gets a clean external IP on port 9092 — Corelight sensors connect directly |
-| 3 worker nodes | One Elasticsearch data node and one Kafka broker per worker for data distribution and fault tolerance |
-| Kubernetes Dashboard + Metrics Server | Real-time resource monitoring of ELK and Kafka pods |
-| StorageClass nfs-storage | Automatic PVC provisioning — no manual volume management |
-| HAProxy on port 80/443 | Kibana web UI exposed through the cluster ingress |
-| Calico CNI | Secure pod-to-pod communication between Kafka, Logstash, and Elasticsearch |
+| **Broker** | The Kafka server process. Stores messages on disk, serves producers and consumers, replicates partitions to peer brokers. Each worker node runs one broker. |
+| **Topic** | A named log stream (e.g. `corelight.conn`). All messages of a given type are written to the same topic. Topics are split into partitions for parallelism. |
+| **Partition** | The unit of parallelism and replication. A topic can have multiple partitions distributed across brokers. Each partition is an ordered, append-only log. |
+| **Leader Partition** | One broker owns each partition as Leader — it handles all reads and writes for that partition. |
+| **Replica Partition** | Other brokers hold copies (replicas) of each partition. If the Leader broker fails, a replica is elected the new Leader automatically. |
+| **Producer** | Any system that writes messages to Kafka. In this setup: the Corelight sensor's Kafka exporter. |
+| **Consumer** | Any system that reads messages from Kafka topics. Consumers track their own offset — they can re-read data or start from any point in history. |
+| **Consumer Group** | A group of consumer instances that share the work of reading a topic. Each partition is consumed by only one member at a time — enabling parallel processing. |
+| **Offset** | A sequential ID for each message within a partition. Consumers commit their offset so they resume from the right position after a restart. |
+| **KRaft Controller** | Kafka 3.x built-in consensus layer (replaces Zookeeper). One broker is elected Controller and manages cluster metadata, partition assignments, and leader elections. |
+| **Retention** | Kafka keeps messages on disk for a configurable period (e.g. 7 days) regardless of whether consumers have read them. This is what makes replay possible. |
+
+### Why Kafka for This Use Case
+
+| Without Kafka | With Kafka |
+|---|---|
+| Corelight writes directly to a consumer — if consumer is slow or down, logs are dropped | Kafka buffers all messages on disk — consumer can restart and catch up |
+| Single consumer only — adding a second consumer (e.g. SIEM + alerting) requires changes on the sensor | Multiple consumer groups can read the same topic independently |
+| Traffic spike overwhelms the consumer immediately | Kafka absorbs the burst — consumers drain the backlog at their own rate |
+| No replay — if data is lost, it is gone | Retention period allows full replay of any time window |
+
+### Kafka Deployment on This Cluster
+
+**Tool:** Strimzi Kafka Operator (production-grade Kubernetes-native Kafka)
+
+**Deployment distribution (3 brokers — 1 per worker):**
+
+| Worker Node | Kafka Pod | PVC | Role |
+|---|---|---|---|
+| worker1 (172.25.25.21) | kafka-0 | nfs-storage PVC | Broker + KRaft voter |
+| worker2 (172.25.25.22) | kafka-1 | nfs-storage PVC | Broker + KRaft voter |
+| worker3 (172.25.25.23) | kafka-2 | nfs-storage PVC | Broker + KRaft voter |
+
+**External access:** MetalLB assigns a VIP (e.g. 172.25.25.101) on port 9092 — Corelight sensor points its Kafka exporter at this address.
 
 ### Planned Kafka Topics from Corelight
 
 | Topic | Zeek Log Type | Content |
 |---|---|---|
-| corelight.conn | conn.log | All network connections — src/dst IP, port, protocol, bytes, duration |
-| corelight.dns | dns.log | All DNS queries and responses |
-| corelight.http | http.log | HTTP requests — URI, method, user-agent, response code |
-| corelight.ssl | ssl.log | TLS sessions — certificate details, cipher, SNI |
-| corelight.files | files.log | File transfers — hash, MIME type, source |
-| corelight.weird | weird.log | Anomalous protocol behavior flagged by Zeek |
+| `corelight.conn` | conn.log | All network connections — src/dst IP, port, protocol, bytes, duration |
+| `corelight.dns` | dns.log | All DNS queries and responses |
+| `corelight.http` | http.log | HTTP requests — URI, method, user-agent, response code |
+| `corelight.ssl` | ssl.log | TLS sessions — certificate details, cipher, SNI |
+| `corelight.files` | files.log | File transfers — hash, MIME type, source |
+| `corelight.weird` | weird.log | Anomalous protocol behavior flagged by Zeek |
+
+### What the Current Cluster Provides for Kafka
+
+| Cluster Capability | How It Supports Kafka |
+|---|---|
+| NFS persistent storage (StorageClass nfs-storage) | Kafka topic data and offsets survive pod restarts and node reboots |
+| MetalLB LoadBalancer IPs | Kafka gets a clean external IP on port 9092 — Corelight sensor connects directly |
+| 3 worker nodes | One Kafka broker per worker — replication factor 2 means cluster survives loss of 1 broker |
+| Kubernetes Dashboard + Metrics Server | Real-time monitoring of broker CPU, memory, and pod health |
+| Calico CNI | Encrypted pod-to-pod communication between brokers for replication traffic |
 
 ---
 
@@ -1160,3 +1211,178 @@ Corelight natively supports Kafka output — configuring the sensor's Kafka expo
 | Dashboard no CPU/memory graphs | Metrics Server not installed | Install Metrics Server (Step 18) |
 | pfSense routing loop | Wrong default gateway configured | Disable incorrect gateway under System → Routing → Gateways |
 | NFS provisioner CrashLoopBackOff | nfs-common missing on workers | Install nfs-common via Ansible then rollout restart provisioner |
+
+---
+
+## 26. Kubernetes Traffic Flow & Pod Scheduling
+
+### How External Traffic Reaches a Pod
+
+When a client on the home LAN (192.168.1.0/24) or the Kubernetes subnet accesses a service exposed via MetalLB:
+
+```
+Client / Browser
+      │
+      ▼
+MetalLB Speaker (DaemonSet on every worker node)
+  └─ Responds to ARP request for the MetalLB VIP (e.g. 172.25.25.100)
+  └─ Announces the VIP belongs to a specific worker node (L2 mode)
+      │
+      ▼
+kube-proxy (iptables rules on the receiving node)
+  └─ Rewrites destination IP from Service ClusterIP → Pod IP (10.244.x.x)
+  └─ If pod is on a different node, traffic is forwarded via the node network
+      │
+      ▼
+calico-node (CNI — overlay routing across nodes)
+  └─ Routes the packet to the correct node where the pod actually lives
+  └─ Encapsulates cross-node traffic (VXLAN/IP-IP overlay)
+      │
+      ▼
+Pod (10.244.x.x)
+  └─ Receives the request on its container port
+```
+
+**Concrete example — Kubernetes Dashboard:**
+1. Browser navigates to `https://172.25.25.100`
+2. ARP broadcast on 172.25.25.0/24 — MetalLB speaker on worker1 responds
+3. Packet arrives at worker1; kube-proxy iptables rule maps 172.25.25.100:443 → 10.244.155.132:8443 (dashboard pod)
+4. If dashboard pod is on worker3, Calico tunnels the packet from worker1 to worker3
+5. Dashboard pod sends response; reverse path follows same routing
+
+---
+
+### How kubectl apply Works — End to End
+
+```
+kubectl apply -f deployment.yaml        (from Manager VM 172.25.25.5)
+      │
+      ▼
+HAProxy (172.25.25.10:6443)
+  └─ Picks a healthy master (master1, master2, or master3)
+  └─ Health check: TCP connect to port 6443 every 5 seconds
+      │
+      ▼
+kube-apiserver (on selected master)
+  └─ Authenticates request (client certificate or Bearer token)
+  └─ Validates the manifest against Kubernetes schema
+  └─ Writes the desired state to etcd
+      │
+      ▼
+etcd (replicated across 3 masters — Raft consensus)
+  └─ 3-member cluster — at least 2 must agree (quorum = 2/3)
+  └─ Stores the pod spec, deployment spec, replica count
+      │
+      ▼
+kube-controller-manager (leader-elected — 1 active of 3)
+  └─ ReplicaSet controller detects: desired=3 pods, actual=0 pods
+  └─ Creates 3 Pod objects with status: Pending (no node assigned yet)
+      │
+      ▼
+kube-scheduler (leader-elected — 1 active of 3)
+  └─ Watches for Pending pods
+  └─ For each pod: filter nodes → score nodes → assign best node
+  └─ Writes nodeName to pod spec in etcd
+      │
+      ▼
+kubelet (on the assigned worker node)
+  └─ Polls API server — sees a pod assigned to its node
+  └─ Tells containerd to pull the container image
+  └─ Creates the pod sandbox (network namespace, cgroups)
+  └─ Starts the container
+  └─ Reports status back: Running, IP assigned
+      │
+      ▼
+Pod is Running on the worker node
+kube-proxy updates iptables rules to include the new pod endpoint
+calico-node assigns a pod IP and programs routes across all nodes
+```
+
+---
+
+### How kube-scheduler Chooses a Worker Node
+
+The scheduler uses a two-phase process for every unscheduled pod:
+
+**Phase 1 — Filtering (eliminate ineligible nodes):**
+
+| Filter | What It Checks |
+|---|---|
+| Resource fit | Node has enough free CPU and RAM to satisfy pod's `requests` |
+| Taints & Tolerations | Masters are tainted `node-role.kubernetes.io/control-plane:NoSchedule` — app pods not scheduled there unless they add a matching toleration |
+| Node Selector | Pod's `nodeSelector` labels must match node labels |
+| Pod Affinity / Anti-Affinity | Required affinity rules must be satisfied |
+| Volume availability | If pod requires a specific PVC, node must be able to mount it |
+| Port conflicts | hostPort must not already be in use on that node |
+
+**Phase 2 — Scoring (rank remaining nodes, highest wins):**
+
+| Score Factor | Preference |
+|---|---|
+| Least allocated | Node with most available CPU/RAM wins |
+| Spread | Balance pods evenly — avoid stacking replicas on one node |
+| Image locality | Node that already has the container image cached scores higher |
+| Pod anti-affinity weight | Soft anti-affinity rules reduce score when similar pods already exist on a node |
+
+**In our lab:** Masters are always filtered out for app pods (tainted). The 3 workers compete on resource availability and spread.
+
+---
+
+### ELK Stack — Pod Scheduling Across Our 3 Workers
+
+When you deploy the full ELK + Kafka pipeline with `helm install`, the scheduler distributes pods to ensure HA — no two replicas of the same component land on the same node. The Elasticsearch StatefulSet uses `podAntiAffinity` with `topologyKey: kubernetes.io/hostname` to enforce this:
+
+```
+worker1 (172.25.25.21)          worker2 (172.25.25.22)          worker3 (172.25.25.23)
+┌───────────────────────┐       ┌───────────────────────┐       ┌───────────────────────┐
+│ elasticsearch-0       │       │ elasticsearch-1       │       │ elasticsearch-2       │
+│  Primary shards       │       │  Replica shards       │       │  Replica shards       │
+│  PVC → NFS storage    │       │  PVC → NFS storage    │       │  PVC → NFS storage    │
+│                       │       │                       │       │                       │
+│ kibana-xxx            │       │ logstash-xxx          │       │ kafka-0               │
+│  Web UI :5601         │       │  Parse & enrich logs  │       │  Message broker :9092 │
+│  MetalLB VIP          │       │  Kafka → Elasticsearch│       │  Corelight sends here │
+│                       │       │                       │       │                       │
+│ metricbeat-xxx        │       │ metricbeat-xxx        │       │ metricbeat-xxx        │
+│  DaemonSet            │       │  DaemonSet            │       │  DaemonSet            │
+└───────────────────────┘       └───────────────────────┘       └───────────────────────┘
+```
+
+**Why this distribution:**
+- `elasticsearch-0/1/2` each have anti-affinity rules — scheduler guarantees one per node
+- `kibana` follows node affinity (or resource availability) — lands on whichest worker has headroom
+- `logstash` is a Deployment (single replica) — lands on any available worker
+- `kafka-0` is a StatefulSet with PVC — pinned to one worker, data survives pod restarts via NFS
+- `metricbeat` is a DaemonSet — exactly one pod per node (all 3 workers + optionally masters)
+
+**Failure tolerance:** If worker2 goes down, Kubernetes detects node failure (kubelet heartbeat stops). The controller-manager reschedules `elasticsearch-1` and `logstash` to remaining workers. Elasticsearch still has quorum (2 of 3 data nodes) and continues serving data with degraded capacity. Kafka also tolerates broker loss if replication factor > 1.
+
+---
+
+### Component Reference — What Runs Where and Why
+
+#### Control Plane Components (Masters Only)
+
+| Component | What It Does | Why 3 Masters |
+|---|---|---|
+| **kube-apiserver** | Single entry point for all cluster operations. Every kubectl command, controller action, and kubelet heartbeat passes through here. Validates auth (RBAC), persists state to etcd. In our lab HAProxy load balances all 3 on port 6443. | Active on all 3 masters simultaneously. HAProxy distributes load across them. If 1 master fails, traffic shifts to remaining 2. |
+| **etcd** | Distributed key-value store holding the complete cluster state — every pod spec, service, configmap, secret, node status, replica count. Uses Raft consensus to replicate writes across all 3 members. | Raft requires majority quorum: 3 members can tolerate loss of 1. With only 2 members, losing 1 makes the cluster read-only. **This is why 3 masters is the minimum for HA.** |
+| **kube-controller-manager** | Runs control loops that continuously compare desired state (in etcd) vs actual state, and acts to reconcile them. Includes: ReplicaSet controller (maintains pod count), Node controller (detects failures), Endpoint controller (maps services to pods). | Leader election — only 1 of 3 instances is active at any time. The other 2 standby and take over immediately if the leader fails. |
+| **kube-scheduler** | Watches for newly created pods with no node assigned. Runs filter + score cycle for each pod, assigns it to the best-fit node by writing `nodeName` into the pod spec. | Leader election — only 1 of 3 active. Standby instances take over in seconds. No scheduling disruption even during master failure. |
+
+#### Node-Level Components (All Nodes — Masters + Workers)
+
+| Component | What It Does | Notes |
+|---|---|---|
+| **kubelet** | Primary agent on every node. Registers node with API server. Watches for pods assigned to its node. Instructs containerd to pull images and start containers. Monitors health via liveness/readiness probes. Reports pod and node status every few seconds. | Runs on all 6 nodes. If kubelet dies, the node appears NotReady and pods are rescheduled elsewhere. |
+| **kube-proxy** | Maintains iptables/ipvs rules implementing Kubernetes Services. When a pod accesses a ClusterIP, kube-proxy rules transparently redirect traffic to a healthy pod endpoint. Enables service discovery and load balancing across pod replicas. | DaemonSet — one per node. Configures iptables without being in the data path itself. |
+| **calico-node (CNI)** | Assigns IP addresses from pod CIDR (10.244.x.x) to each pod. Programs routes so pods on different nodes can communicate directly. Enforces NetworkPolicy rules to control which pods can talk to which. In our lab Calico replaced Flannel (Flannel v0.28.5 requires `/opt/bin` which Ubuntu 22.04 does not provide). | DaemonSet — one per node. v3.27.0. Without CNI, pods cannot communicate at all — CoreDNS would stay Pending. |
+| **containerd** | Container runtime that actually runs containers. kubelet communicates with containerd via the CRI (Container Runtime Interface). containerd pulls images, unpacks them, creates container namespaces, manages container lifecycle, reports status to kubelet. `SystemdCgroup = true` is required so cgroup management works correctly with systemd. | Runs on all 6 nodes. v2.2.5. |
+
+#### Worker-Only Components
+
+| Component | What It Does |
+|---|---|
+| **MetalLB Speaker** | DaemonSet running on every worker. Responds to ARP requests for LoadBalancer VIPs (172.25.25.100–150). Announces which node owns which VIP. Only workers participate — masters are excluded via node selector. |
+| **Application Pods** | Workload pods (Dashboard, ELK, Kafka, NFS provisioner) are scheduled exclusively on workers due to the `node-role.kubernetes.io/control-plane:NoSchedule` taint on masters. |
+
